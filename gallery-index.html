@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Category Gallery — Demo</title>
+  <style>
+    :root{--bg:#071829;--card:#071827;--muted:#94a3b8;--accent:#7c3aed}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;color:#e6eef8;background:linear-gradient(180deg,#071026 0%, #071829 100%);padding:24px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 12px;border-radius:10px;color:var(--muted);cursor:pointer}
+    .btn.active{background:linear-gradient(90deg,var(--accent),#5b21b6);color:#fff;border:0;box-shadow:0 6px 18px rgba(124,58,237,0.18)}
+    .search{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:var(--muted)}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;overflow:hidden;position:relative;cursor:pointer;border:1px solid rgba(255,255,255,0.03)}
+    .card img{width:100%;height:140px;object-fit:cover;display:block;background:#111}
+    .meta{padding:10px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+    .tag{font-weight:600;color:#cbd5e1;background:rgba(255,255,255,0.02);padding:6px 8px;border-radius:8px;font-size:12px}
+
+    .empty{padding:36px;text-align:center;color:var(--muted)}
+
+    /* modal */
+    .modal{position:fixed;inset:0;background:rgba(2,6,23,0.75);display:none;align-items:center;justify-content:center;padding:22px;z-index:40}
+    .modal.open{display:flex}
+    .modal-content{max-width:1000px;width:100%;background:var(--card);border-radius:12px;overflow:hidden;box-shadow:0 30px 80px rgba(2,6,23,0.7)}
+    .modal-img{width:100%;height:60vh;object-fit:cover;display:block;background:#000}
+    .modal-footer{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
+    .close{background:transparent;border:0;color:var(--muted);cursor:pointer}
+
+    @media (max-width:600px){
+      .controls{flex-direction:column;align-items:stretch}
+      .search{width:100%}
+      .modal-img{height:50vh}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gallery — Categories</h1>
+    <div class="controls">
+      <div id="filters" aria-label="category filters">
+        <button class="btn active" data-cat="all">All</button>
+        <button class="btn" data-cat="nature">Nature</button>
+        <button class="btn" data-cat="architecture">Architecture</button>
+        <button class="btn" data-cat="food">Food</button>
+        <button class="btn" data-cat="people">People</button>
+        <button class="btn" data-cat="tech">Tech</button>
+      </div>
+      <input id="search" class="search" placeholder="Search images or tags..." />
+    </div>
+  </header>
+
+  <main>
+    <section id="gallery" class="grid" aria-live="polite"></section>
+    <div id="empty" class="empty" style="display:none">No images match your filters.</div>
+  </main>
+
+  <div id="modal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <img id="modalImg" class="modal-img" src="" alt="" />
+      <div class="modal-footer">
+        <div id="modalMeta" style="font-size:14px;color:var(--muted)"></div>
+        <div>
+          <button id="prev" class="btn">Prev</button>
+          <button id="next" class="btn">Next</button>
+          <button id="close" class="close">Close ✕</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Safe sample dataset
+    const items = [
+      {id:1, title:'Misty Mountain', cat:'nature', src:'https://picsum.photos/id/1018/1000/600'},
+      {id:2, title:'Forest Path', cat:'nature', src:'https://picsum.photos/id/1020/1000/600'},
+      {id:3, title:'Modern Building', cat:'architecture', src:'https://picsum.photos/id/1003/1000/600'},
+      {id:4, title:'City Skyline', cat:'architecture', src:'https://picsum.photos/id/1011/1000/600'},
+      {id:5, title:'Pasta Plate', cat:'food', src:'https://picsum.photos/id/1080/1000/600'},
+      {id:6, title:'Sushi Set', cat:'food', src:'https://picsum.photos/id/1081/1000/600'},
+      {id:7, title:'Smiling Friend', cat:'people', src:'https://picsum.photos/id/1005/1000/600'},
+      {id:8, title:'Portrait', cat:'people', src:'https://picsum.photos/id/1027/1000/600'},
+      {id:9, title:'Laptop Desk', cat:'tech', src:'https://picsum.photos/id/180/1000/600'},
+      {id:10, title:'Gadgets', cat:'tech', src:'https://picsum.photos/id/1/1000/600'}
+    ];
+
+    const gallery = document.getElementById('gallery');
+    const empty = document.getElementById('empty');
+    const filters = document.getElementById('filters');
+    const searchInput = document.getElementById('search');
+
+    let currentFilter = 'all';
+    let query = '';
+
+    // Render cards (always safe)
+    function render(){
+      gallery.innerHTML = '';
+      const filtered = items.filter(it => {
+        const catOk = currentFilter === 'all' || it.cat === currentFilter;
+        const text = (it.title + ' ' + it.cat).toLowerCase();
+        const queryOk = !query || text.includes(query.toLowerCase());
+        return catOk && queryOk;
+      });
+
+      if(filtered.length === 0){ empty.style.display = 'block'; return }
+      empty.style.display = 'none';
+
+      filtered.forEach(it => {
+        const card = document.createElement('article');
+        card.className = 'card';
+        card.tabIndex = 0;
+        card.setAttribute('data-id', it.id);
+        card.setAttribute('data-cat', it.cat);
+        card.innerHTML = `\n          <img loading="lazy" src="${it.src}" alt="${it.title}" />\n          <div class="meta">\n            <div>${it.title}</div>\n            <div class="tag">${it.cat}</div>\n          </div>`;
+        card.addEventListener('click', ()=> openModalForId(it.id, filtered));
+        card.addEventListener('keydown', (e)=>{ if(e.key==='Enter') openModalForId(it.id, filtered) });
+        gallery.appendChild(card);
+      });
+    }
+
+    // Filter buttons
+    filters.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button');
+      if(!btn) return;
+      currentFilter = btn.dataset.cat || 'all';
+      filters.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
+
+    searchInput.addEventListener('input', (e)=>{ query = e.target.value.trim(); render(); });
+
+    // Modal logic — works on the current filtered set so Prev/Next follow what's visible
+    const modal = document.getElementById('modal');
+    const modalImg = document.getElementById('modalImg');
+    const modalMeta = document.getElementById('modalMeta');
+    const closeBtn = document.getElementById('close');
+    const nextBtn = document.getElementById('next');
+    const prevBtn = document.getElementById('prev');
+
+    let visibleList = [];
+    let currentIndex = 0;
+
+    function openModalForId(id, currentFilteredList){
+      // store the visible list so prev/next match filters/search
+      visibleList = currentFilteredList.slice();
+      currentIndex = visibleList.findIndex(i=>i.id===id);
+      if(currentIndex === -1) currentIndex = 0;
+      showCurrent();
+      modal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(){ modal.classList.remove('open'); document.body.style.overflow = ''; }
+    function showCurrent(){
+      if(!visibleList.length) return;
+      const it = visibleList[currentIndex];
+      modalImg.src = it.src;
+      modalImg.alt = it.title;
+      modalMeta.textContent = `${it.title} — ${it.cat}`;
+    }
+
+    nextBtn.addEventListener('click', ()=>{ if(!visibleList.length) return; currentIndex = (currentIndex+1) % visibleList.length; showCurrent(); });
+    prevBtn.addEventListener('click', ()=>{ if(!visibleList.length) return; currentIndex = (currentIndex-1+visibleList.length) % visibleList.length; showCurrent(); });
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e)=>{ if(e.target === modal) closeModal(); });
+
+    document.addEventListener('keydown', (e)=>{
+      if(!modal.classList.contains('open')) return;
+      if(e.key === 'Escape') closeModal();
+      if(e.key === 'ArrowRight') nextBtn.click();
+      if(e.key === 'ArrowLeft') prevBtn.click();
+    });
+
+    // initial render
+    render();
+
+    // Safe helper to add images dynamically
+    window.addImage = function({title,cat,src}){
+      const maxId = items.length ? Math.max(...items.map(i=>i.id)) : 0;
+      const nextId = maxId + 1;
+      items.push({id:nextId,title: title||('Image '+nextId),cat:cat||'uncategorized',src:src||('https://picsum.photos/seed/'+nextId+'/1000/600')});
+      render();
+    }
+
+  </script>
+</body>
+</html>
